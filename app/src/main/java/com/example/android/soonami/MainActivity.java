@@ -18,6 +18,7 @@ package com.example.android.soonami;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.support.v7.app.AppCompatActivity;
+import android.text.TextUtils;
 import android.util.Log;
 import android.widget.TextView;
 
@@ -45,7 +46,7 @@ public class MainActivity extends AppCompatActivity {
 
     /** URL to query the USGS dataset for earthquake information */
     private static final String USGS_REQUEST_URL =
-            "http://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=2012-01-01&endtime=2012-12-01&minmagnitude=6";
+            "https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=2014-01-01&endtime=2014-12-01&minmagnitude=7";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
         // Kick off an {@link AsyncTask} to perform the network request
         TsunamiAsyncTask task = new TsunamiAsyncTask();
         task.execute();
+
     }
 
     /**
@@ -112,7 +114,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 jsonResponse = makeHttpRequest(url);
             } catch (IOException e) {
-                // TODO Handle the IOException
+                Log.e(LOG_TAG, "IOException in TsunamiAsyncTask", e);
             }
 
             // Extract relevant fields from the JSON response and create an {@link Event} object
@@ -139,11 +141,12 @@ public class MainActivity extends AppCompatActivity {
          * Returns new URL object from the given string URL.
          */
         private URL createUrl(String stringUrl) {
-            URL url = null;
+            URL url;
             try {
                 url = new URL(stringUrl);
             } catch (MalformedURLException exception) {
-                Log.e(LOG_TAG, "Error with creating URL", exception);
+                Log.e(LOG_TAG, "Error creating URL from string: \"" + stringUrl + "\"", exception);
+                // exception.printStackTrace();
                 return null;
             }
             return url;
@@ -154,6 +157,12 @@ public class MainActivity extends AppCompatActivity {
          */
         private String makeHttpRequest(URL url) throws IOException {
             String jsonResponse = "";
+
+            // check for empty url
+            if (url == null) {
+                return jsonResponse;
+            }
+
             HttpURLConnection urlConnection = null;
             InputStream inputStream = null;
             try {
@@ -162,10 +171,19 @@ public class MainActivity extends AppCompatActivity {
                 urlConnection.setReadTimeout(10000 /* milliseconds */);
                 urlConnection.setConnectTimeout(15000 /* milliseconds */);
                 urlConnection.connect();
-                inputStream = urlConnection.getInputStream();
-                jsonResponse = readFromStream(inputStream);
+
+                // if request was successful (response code 200)
+                // read the json response from the input stream
+                if (urlConnection.getResponseCode() == 200) {
+                    inputStream = urlConnection.getInputStream();
+                    jsonResponse = readFromStream(inputStream);
+                } else {
+                    // log response code other than 200
+                    Log.e(LOG_TAG, "Error: Bad http response code: " + String.valueOf(urlConnection.getResponseCode()));
+                }
+
             } catch (IOException e) {
-                // TODO: Handle the exception
+                Log.e(LOG_TAG, "IOException found during makeHttpRequest", e);
             } finally {
                 if (urlConnection != null) {
                     urlConnection.disconnect();
@@ -183,9 +201,14 @@ public class MainActivity extends AppCompatActivity {
          * whole JSON response from the server.
          */
         private String readFromStream(InputStream inputStream) throws IOException {
+            // StringBuilder lets us use a single object and add new lines with append()
+            // much faster than making multiple (immutable) String objects and adding them together
             StringBuilder output = new StringBuilder();
+            // InputStream is just raw data
             if (inputStream != null) {
+                // InputStreamReader can read individual incoming characters in UTF-8 format
                 InputStreamReader inputStreamReader = new InputStreamReader(inputStream, Charset.forName("UTF-8"));
+                // BufferedReader is used to read larger chunks of data at a time
                 BufferedReader reader = new BufferedReader(inputStreamReader);
                 String line = reader.readLine();
                 while (line != null) {
@@ -201,6 +224,12 @@ public class MainActivity extends AppCompatActivity {
          * about the first earthquake from the input earthquakeJSON string.
          */
         private Event extractFeatureFromJson(String earthquakeJSON) {
+
+            // If the JSON string is empty or null, return early
+            if (TextUtils.isEmpty(earthquakeJSON)) {
+                return null;
+            }
+
             try {
                 JSONObject baseJsonResponse = new JSONObject(earthquakeJSON);
                 JSONArray featureArray = baseJsonResponse.getJSONArray("features");
